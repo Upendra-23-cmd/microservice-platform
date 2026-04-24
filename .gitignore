@@ -1,0 +1,39 @@
+# ── Secrets / Env ───────────────────────────────
+.env
+.env.local
+.env.production
+*.pem
+*.key
+*.crt
+certs/
+
+# ── Go ───────────────────────────────────────────
+bin/
+*.test
+*.out
+coverage.out
+coverage.html
+vendor/
+
+# ── Node / Frontend ──────────────────────────────
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# ── Docker ───────────────────────────────────────
+.dockerignore
+
+# ── IDEs ─────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Generated Proto ──────────────────────────────
+backend/internal/grpc/pb/
+
+# ── Kubernetes secrets ───────────────────────────
+**/sealed-secret*.yaml

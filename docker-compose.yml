@@ -1,0 +1,214 @@
+version: "3.9"
+
+# ============================================================
+# Networks
+# ============================================================
+networks:
+  app-net:
+    driver: bridge
+
+# ============================================================
+# Volumes (persistent data)
+# ============================================================
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:
+  grafana_data:
+
+# ============================================================
+# Services
+# ============================================================
+services:
+
+  # ──────────────────────────────────────────────
+  # Go Backend (gRPC + HTTP Gateway)
+  # ──────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: deployments/docker/Dockerfile
+      target: production
+    container_name: msp-backend
+    restart: unless-stopped
+    networks: [app-net]
+    ports:
+      - "8080:8080"   # HTTP / REST Gateway
+      - "50051:50051" # gRPC
+      - "9090:9090"   # Prometheus metrics
+    env_file:
+      - ./backend/.env
+    environment:
+      APP_ENV: production
+      POSTGRES_HOST: postgres
+      MONGODB_URI: mongodb://app_user:${MONGO_PASSWORD:-changeme}@mongodb:27017/microservice_db?authSource=admin
+      REDIS_HOST: redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/bin/grpc_health_probe", "-addr=:50051"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ──────────────────────────────────────────────
+  # React Frontend
+  # ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    container_name: msp-frontend
+    restart: unless-stopped
+    networks: [app-net]
+    ports:
+      - "3000:80"
+    env_file:
+      - ./frontend/.env
+    depends_on:
+      - backend
+
+  # ──────────────────────────────────────────────
+  # PostgreSQL 16
+  # ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: msp-postgres
+    restart: unless-stopped
+    networks: [app-net]
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: microservice_db
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/migrations/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d microservice_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    command: >
+      postgres
+        -c max_connections=200
+        -c shared_buffers=256MB
+        -c effective_cache_size=768MB
+        -c maintenance_work_mem=64MB
+        -c checkpoint_completion_target=0.7
+        -c wal_buffers=16MB
+        -c default_statistics_target=100
+        -c random_page_cost=1.1
+        -c effective_io_concurrency=200
+        -c log_min_duration_statement=200
+
+  # ──────────────────────────────────────────────
+  # MongoDB 7
+  # ──────────────────────────────────────────────
+  mongodb:
+    image: mongo:7-jammy
+    container_name: msp-mongodb
+    restart: unless-stopped
+    networks: [app-net]
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-rootchangeme}
+      MONGO_INITDB_DATABASE: microservice_db
+    volumes:
+      - mongodb_data:/data/db
+      - ./backend/migrations/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ──────────────────────────────────────────────
+  # Redis 7 (Cache + Pub/Sub)
+  # ──────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: msp-redis
+    restart: unless-stopped
+    networks: [app-net]
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+        --requirepass ${REDIS_PASSWORD:-changeme}
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+        --appendonly yes
+        --appendfsync everysec
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ──────────────────────────────────────────────
+  # Jaeger (Distributed Tracing)
+  # ──────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: msp-jaeger
+    restart: unless-stopped
+    networks: [app-net]
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4317:4317"   # OTLP gRPC receiver
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+  # ──────────────────────────────────────────────
+  # Prometheus
+  # ──────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: msp-prometheus
+    restart: unless-stopped
+    networks: [app-net]
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./backend/deployments/docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+
+  # ──────────────────────────────────────────────
+  # Grafana
+  # ──────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.1
+    container_name: msp-grafana
+    restart: unless-stopped
+    networks: [app-net]
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./backend/deployments/docker/grafana-provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus

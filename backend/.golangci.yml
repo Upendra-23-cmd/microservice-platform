@@ -1,0 +1,112 @@
+# .golangci.yml — golangci-lint configuration
+# Run: golangci-lint run ./...
+
+run:
+  timeout: 5m
+  tests: true
+  go: "1.22"
+
+output:
+  format: colored-line-number
+  sort-results: true
+
+linters-settings:
+  gofmt:
+    simplify: true
+
+  goimports:
+    local-prefixes: github.com/yourorg/microservice-platform
+
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment  # too noisy for business code
+
+  revive:
+    rules:
+      - name: exported
+      - name: unused-parameter
+      - name: var-naming
+
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - hugeParam          # acceptable in some domains
+      - commentedOutCode
+
+  cyclop:
+    max-complexity: 15
+
+  funlen:
+    lines: 80
+    statements: 50
+
+  gocognit:
+    min-complexity: 20
+
+  dupl:
+    threshold: 150
+
+  misspell:
+    locale: US
+
+  depguard:
+    rules:
+      main:
+        deny:
+          - pkg: "log"
+            desc: "Use go.uber.org/zap instead of stdlib log"
+          - pkg: "github.com/pkg/errors"
+            desc: "Use fmt.Errorf with %w or our pkg/errors package"
+
+linters:
+  disable-all: true
+  enable:
+    - bodyclose
+    - cyclop
+    - depguard
+    - dupl
+    - errcheck
+    - exportloopref
+    - funlen
+    - gocognit
+    - gocritic
+    - gofmt
+    - goimports
+    - govet
+    - ineffassign
+    - misspell
+    - noctx
+    - nolintlint
+    - prealloc
+    - revive
+    - staticcheck
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+
+issues:
+  exclude-rules:
+    # Allow longer functions in test files
+    - path: "_test\\.go"
+      linters: [funlen, dupl, cyclop, gocognit]
+
+    # Allow unused params in interface implementations
+    - linters: [unparam]
+      text: "is always"
+
+    # Allow fmt.Println in main.go during startup
+    - path: "cmd/server/main\\.go"
+      linters: [forbidigo]
+
+  max-issues-per-linter: 0
+  max-same-issues: 0

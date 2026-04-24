@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+package user.v1;
+
+option go_package = "github.com/yourorg/microservice-platform/backend/internal/grpc/pb/user/v1;userv1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+import "google/api/annotations.proto";
+import "validate/validate.proto";
+
+// ============================================================
+// MESSAGES
+// ============================================================
+
+message User {
+  string id         = 1;
+  string email      = 2;
+  string first_name = 3;
+  string last_name  = 4;
+  string role       = 5;
+  bool   is_active  = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message CreateUserRequest {
+  string email      = 1 [(validate.rules).string.email = true];
+  string password   = 2 [(validate.rules).string.min_len = 8];
+  string first_name = 3 [(validate.rules).string.min_len = 1];
+  string last_name  = 4 [(validate.rules).string.min_len = 1];
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message GetUserRequest {
+  string id = 1 [(validate.rules).string.uuid = true];
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message UpdateUserRequest {
+  string id         = 1 [(validate.rules).string.uuid = true];
+  string first_name = 2;
+  string last_name  = 3;
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+message DeleteUserRequest {
+  string id = 1 [(validate.rules).string.uuid = true];
+}
+
+message ListUsersRequest {
+  int32  page      = 1;
+  int32  page_size = 2 [(validate.rules).int32 = {gte: 1, lte: 100}];
+  string sort_by   = 3;
+  string order     = 4;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+  int64         total = 2;
+  int32         page  = 3;
+  int32         pages = 4;
+}
+
+message LoginRequest {
+  string email    = 1 [(validate.rules).string.email = true];
+  string password = 2 [(validate.rules).string.min_len = 1];
+}
+
+message LoginResponse {
+  string access_token  = 1;
+  string refresh_token = 2;
+  int64  expires_in    = 3;
+  User   user          = 4;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  int64  expires_in   = 2;
+}
+
+// ============================================================
+// SERVICE
+// ============================================================
+
+service UserService {
+  // Auth
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/auth/login"
+      body: "*"
+    };
+  }
+
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/auth/refresh"
+      body: "*"
+    };
+  }
+
+  // Users CRUD
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/users"
+      body: "*"
+    };
+  }
+
+  rpc GetUser(GetUserRequest) returns (GetUserResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/users/{id}"
+    };
+  }
+
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse) {
+    option (google.api.http) = {
+      put: "/api/v1/users/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteUser(DeleteUserRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/api/v1/users/{id}"
+    };
+  }
+
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse) {
+    option (google.api.http) = {
+      get: "/api/v1/users"
+    };
+  }
+}
